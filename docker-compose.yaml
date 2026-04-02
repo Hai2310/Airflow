@@ -1,0 +1,88 @@
+version: "3.9"
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:3.1.0
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: Asia/Ho_Chi_Minh
+    AIRFLOW__WEBSERVER__SECRET_KEY: airflow_secret_key_2026
+    _PIP_ADDITIONAL_REQUIREMENTS: >
+      apache-airflow-providers-standard
+      pandas
+      requests
+      psycopg2-binary
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow_init
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create \
+          --username admin \
+          --password admin123 \
+          --firstname Minh \
+          --lastname Hai \
+          --role Admin \
+          --email admin@example.com
+      "
+    restart: "no"
+
+  airflow-apiserver:
+    <<: *airflow-common
+    container_name: airflow_apiserver
+    command: api-server
+    ports:
+      - "8080:8080"
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow_scheduler
+    command: scheduler
+    restart: always
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: airflow_dag_processor
+    command: dag-processor
+    restart: always
+
+  airflow-triggerer:
+    <<: *airflow-common
+    container_name: airflow_triggerer
+    command: triggerer
+    restart: always
+
+volumes:
+  postgres_db:
